@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'todo-farm-v3';
+const CACHE_VERSION = 'todo-farm-v14';
 const ASSETS = [
   './',
   './index.html',
