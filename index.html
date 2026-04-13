@@ -465,7 +465,11 @@ function dDr(e,cid,ds){e.preventDefault();document.querySelectorAll('.tc.draggin
 // ═══ PWA BADGE ═══
 function uBadge(){try{const rem=S.todos.filter(t=>t.date===tds()&&!t.done).length;if('setAppBadge' in navigator){if(rem>0)navigator.setAppBadge(rem);else navigator.clearAppBadge()}}catch(e){}}
 
-document.addEventListener('visibilitychange',()=>{if(!document.hidden){genRC();genQ();uH();if(sUrl&&sKey)syFr()}});
+// ═══ DATE CHANGE DETECTION ═══
+let _lastDate=tds();
+document.addEventListener('visibilitychange',()=>{if(!document.hidden){const nd=tds();if(nd!==_lastDate){_lastDate=nd;genRC();genQ();cOT()}genRC();genQ();uH();if(sUrl&&sKey)syFr()}});
+// 자정 체크: 1분마다 날짜 변경 확인
+setInterval(()=>{const nd=tds();if(nd!==_lastDate){_lastDate=nd;genRC();genQ();cOT();uH()}},60000);
 </script>
 </body>
 </html>
