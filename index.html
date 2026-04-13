@@ -175,7 +175,7 @@ input,select{font-family:inherit;outline:none}
 </style>
 </head>
 <body>
-<div id="splash"><div class="splash-e">🌱</div><div class="splash-t">할일농장</div><div class="splash-s">할 일을 완료하고 캐릭터를 키우세요</div><div style="font-size:10px;color:rgba(255,255,255,.35);margin-top:12px">v3.0</div></div>
+<div id="splash"><div class="splash-e">🌱</div><div class="splash-t">할일농장</div><div class="splash-s">할 일을 완료하고 캐릭터를 키우세요</div><div style="font-size:10px;color:rgba(255,255,255,.35);margin-top:12px">v3.2</div></div>
 <div class="app" id="app">
 <div class="main">
 <div class="page active" id="pg-home">
@@ -310,7 +310,10 @@ if($('pg-cal').classList.contains('active'))rCal();dbSy()}catch(e){toast('오류
 
 // ═══ RECURRING ═══
 function shCR(r,ds){if(!r||!r.type)return false;const d=new Date(ds);if(isNaN(d))return false;const dow=(d.getDay()+6)%7;if(r.type==='weekly')return Array.isArray(r.value)&&r.value.includes(dow);if(r.type==='monthly')return Array.isArray(r.value)&&d.getDate()===r.value[0];if(r.type==='interval'){if(!r.lastGenDate)return true;const l=new Date(r.lastGenDate);if(isNaN(l))return true;return Math.floor((d-l)/864e5)>=(Array.isArray(r.value)&&r.value[0]||7)}return false}
-function genRC(){let ch=false;[tds(),tms()].forEach(ds=>{S.recurring.forEach(r=>{if(shCR(r,ds)&&!S.todos.some(t=>t.recurId===r.id&&t.date===ds)){S.todos.push({id:uid(),title:r.title,date:ds,importance:r.importance,done:false,recurId:r.id,time:r.time||''});r.lastGenDate=ds;ch=true}})});if(ch)sv()}
+function genRC(){let ch=false;
+// todos가 비어있으면 lastGenDate 리셋 (동기화로 데이터 날아간 경우 복구)
+if(!S.todos||S.todos.length===0)S.recurring.forEach(r=>r.lastGenDate='');
+[tds(),tms()].forEach(ds=>{S.recurring.forEach(r=>{if(shCR(r,ds)&&!S.todos.some(t=>t.recurId===r.id&&t.date===ds)){S.todos.push({id:uid(),title:r.title,date:ds,importance:r.importance,done:false,recurId:r.id,time:r.time||'',memo:'',sortOrder:9999});r.lastGenDate=ds;ch=true}})});if(ch)sv()}
 function delRC(id){if(!confirm('삭제?'))return;S.recurring=S.recurring.filter(r=>r.id!==id);sv();uSet()}
 
 // ═══ CALENDAR ═══
@@ -389,23 +392,28 @@ function resetAll(){if(!confirm('정말 모든 데이터를 초기화?'))return;
 // ═══ SHEETS SYNC ═══
 let _syT=null;
 function dbSy(){clearTimeout(_syT);_syT=setTimeout(()=>syTo(),2000)}
+// 데이터 점수: 레벨*1000 + 총완료*10 + 할일수. 초기 상태=1000
+function dScore(d){if(!d||!d.profile)return 0;return((d.profile.level||1)*1000)+((d.profile.totalDone||0)*10)+(d.todos?d.todos.length:0)}
 async function syTo(){if(!sUrl||!sKey||_syn)return;
-// 할 일이 없으면 빈 데이터로 덮어쓰기 방지 - 불러오기만 수행
-if(!S.todos||S.todos.length===0){syFr();return}
+if(dScore(S)<=1000){syFr();return}
 _syn=true;try{
-// 동기화 전 로컬 백업
 try{localStorage.setItem('todo_farm_backup',localStorage.getItem('todo_farm_state')||'{}')}catch(e){}
-const ct=new AbortController,to=setTimeout(()=>ct.abort(),15000),sd=JSON.parse(JSON.stringify(S));if(sd.profile)sd.profile.charImages={};if(sd.profile&&sd.profile.completedChars)sd.profile.completedChars.forEach(c=>c.image=null);const r=await fetch(sUrl,{method:'POST',redirect:'follow',headers:{'Content-Type':'text/plain'},body:JSON.stringify({action:'save',key:sKey,data:sd}),signal:ct.signal});clearTimeout(to);const tx=await r.text();if(tx==='unauthorized'){const e=$('sySt');if(e)e.textContent='❌ 비밀 키 불일치';_syn=false;return}const e=$('sySt');if(e)e.textContent='✅ 동기화 · '+new Date().toLocaleTimeString('ko')}catch(e){const el=$('sySt');if(el)el.textContent='❌ 실패: '+(e.name==='AbortError'?'시간초과':e.message||'네트워크 오류')}finally{_syn=false}}
-async function syFr(){if(!sUrl||!sKey||_syn)return;_syn=true;try{const ct=new AbortController,to=setTimeout(()=>ct.abort(),15000),r=await fetch(sUrl+'?action=load&key='+encodeURIComponent(sKey),{redirect:'follow',signal:ct.signal});clearTimeout(to);const tx=await r.text();if(tx==='unauthorized'||tx.includes('unauthorized')){const e=$('sySt');if(e)e.textContent='❌ 비밀 키 불일치';_syn=false;return}let d;try{d=JSON.parse(tx)}catch(e){_syn=false;const el=$('sySt');if(el)el.textContent='❌ 응답 형식 오류';return}if(d&&Array.isArray(d.todos)&&d.todos.length>0){
-// 서버 데이터가 로컬보다 하위면 덮어쓰지 않음
-const sLv=d.profile?d.profile.level||1:1;const lLv=S.profile?S.profile.level||1:1;const sTd=d.todos.length;const lTd=S.todos.length;
-if(lLv>sLv&&lTd>0){const e=$('sySt');if(e)e.textContent='ℹ️ 로컬이 최신 — 서버에 업로드';_syn=false;syTo();return}
+const ct=new AbortController,to=setTimeout(()=>ct.abort(),15000),sd=JSON.parse(JSON.stringify(S));if(sd.profile)sd.profile.charImages={};if(sd.profile&&sd.profile.completedChars)sd.profile.completedChars.forEach(c=>c.image=null);const r=await fetch(sUrl,{method:'POST',redirect:'follow',headers:{'Content-Type':'text/plain'},body:JSON.stringify({action:'save',key:sKey,data:sd}),signal:ct.signal});clearTimeout(to);const tx=await r.text();if(tx==='unauthorized'){const e=$('sySt');if(e)e.textContent='❌ 비밀 키 불일치';_syn=false;return}const e=$('sySt');if(e)e.textContent='✅ 동기화 · '+new Date().toLocaleTimeString('ko')}catch(e){const el=$('sySt');if(el)el.textContent='❌ 실패: '+(e.name==='AbortError'?'시간초과':e.message||'네트워크')}finally{_syn=false}}
+async function syFr(){if(!sUrl||!sKey||_syn)return;_syn=true;try{const ct=new AbortController,to=setTimeout(()=>ct.abort(),15000),r=await fetch(sUrl+'?action=load&key='+encodeURIComponent(sKey),{redirect:'follow',signal:ct.signal});clearTimeout(to);const tx=await r.text();if(tx==='unauthorized'||tx.includes('unauthorized')){const e=$('sySt');if(e)e.textContent='❌ 비밀 키 불일치';_syn=false;return}let d;try{d=JSON.parse(tx)}catch(e){_syn=false;return}if(!d||!Array.isArray(d.todos)){const e=$('sySt');if(e)e.textContent='ℹ️ 서버 데이터 없음';_syn=false;return}
+const sScore=dScore(d),lScore=dScore(S);
+if(lScore>sScore&&lScore>1000){const e=$('sySt');if(e)e.textContent='ℹ️ 로컬이 최신 → 서버 업로드';_syn=false;syTo();return}
+if(sScore<=1000&&lScore<=1000){const e=$('sySt');if(e)e.textContent='ℹ️ 데이터 없음';_syn=false;return}
+if(sScore<=1000){const e=$('sySt');if(e)e.textContent='ℹ️ 서버 초기 상태';_syn=false;return}
 try{localStorage.setItem('todo_farm_backup',localStorage.getItem('todo_farm_state')||'{}')}catch(e){}
-const li=S.profile.charImages||{},lc=(S.profile.completedChars||[]).map(c=>({...c}));const ns=loadSt2(d);if(!ns.profile.charImages||!Object.keys(ns.profile.charImages).length)ns.profile.charImages=li;ns.profile.completedChars.forEach((c,i)=>{if(!c.image&&lc[i])c.image=lc[i].image});S=ns;sv();uH();const e=$('sySt');if(e)e.textContent='✅ 불러오기 · '+new Date().toLocaleTimeString('ko')}else if(S.todos.length>0){const e=$('sySt');if(e)e.textContent='ℹ️ 서버 비어있음 — 로컬 유지';_syn=false;syTo();return}else{const e=$('sySt');if(e)e.textContent='ℹ️ 데이터 없음'}}catch(e){const el=$('sySt');if(el)el.textContent='❌ 실패: '+(e.name==='AbortError'?'시간초과':e.message||'네트워크 오류')}finally{_syn=false}}
+const localName=S.profile.name,li=S.profile.charImages||{},lc=(S.profile.completedChars||[]).map(c=>({...c}));
+const ns=loadSt2(d);
+if(!ns.profile.charImages||!Object.keys(ns.profile.charImages).length)ns.profile.charImages=li;
+ns.profile.completedChars.forEach((c,i)=>{if(!c.image&&lc[i])c.image=lc[i].image});
+if(localName&&localName!=='농부'&&(!ns.profile.name||ns.profile.name==='농부'))ns.profile.name=localName;
+S=ns;sv();uH();const e=$('sySt');if(e)e.textContent='✅ 불러오기 · '+new Date().toLocaleTimeString('ko')}catch(e){const el=$('sySt');if(el)el.textContent='❌ 실패: '+(e.name==='AbortError'?'시간초과':e.message||'네트워크')}finally{_syn=false}}
 function loadSt2(d){if(!d.profile)d.profile={};Object.keys(DP).forEach(k=>{if(d.profile[k]===undefined)d.profile[k]=JSON.parse(JSON.stringify(DP[k]))});if(!Array.isArray(d.todos))d.todos=[];if(!Array.isArray(d.recurring))d.recurring=[];if(!d.freqMap)d.freqMap={};if(!d.quests)d.quests={date:'',items:[]};if(!d.profile.unlockedItems)d.profile.unlockedItems={top:[],bottom:[],shoes:[],hat:[],acc:[],prop:[]};if(!d.profile.equipped)d.profile.equipped={};if(!d.profile.charImages)d.profile.charImages={};if(!Array.isArray(d.profile.completedChars))d.profile.completedChars=[];if(!Array.isArray(d.profile.achievements))d.profile.achievements=[];if(typeof d.profile.totalDone!=='number')d.profile.totalDone=d.todos.filter(t=>t.done).length;d.profile.completedChars.forEach(c=>{if(!c.animalName)c.animalName=AK[c.animalIdx]||'?';if(!c.equippedNames)c.equippedNames={};if(!c.date)c.date=''});return d}
 function syncNow(){sUrl=$('sUrl').value.trim();localStorage.setItem('todo_farm_sheets',sUrl);sKey=$('sKey').value.trim();localStorage.setItem('todo_farm_sheets_key',sKey);if(!sUrl){toast('URL 입력');return}if(!sKey){toast('비밀 키 입력');return}
-// 첫 연결 시 불러오기 우선
-if(!S.todos||S.todos.length===0){syFr();toast('불러오는 중...')}else{syTo();toast('동기화 중...')}}
+if(dScore(S)<=1000){syFr();toast('불러오는 중...')}else{syTo();toast('동기화 중...')}}
 function restoreBackup(){const bk=localStorage.getItem('todo_farm_backup');if(!bk||bk==='{}'){toast('백업이 없습니다');return}if(!confirm('마지막 백업으로 복원할까요?'))return;try{localStorage.setItem('todo_farm_state',bk);location.reload()}catch(e){toast('복원 실패')}}
 function showGuide(){$('guiM').classList.add('show');$('guiB').innerHTML=`<div style="font-weight:700;font-size:15px;margin-bottom:12px">Google Sheets 연동 방법</div><div style="margin-bottom:12px"><strong>1.</strong> Google Sheets → 새 스프레드시트 (예: 할일농장 DB)</div><div style="margin-bottom:12px"><strong>2.</strong> 확장 프로그램 → Apps Script</div><div style="margin-bottom:12px"><strong>3.</strong> 아래 코드 붙여넣기 (<strong style="color:var(--primary)">SECRET 변경!</strong>):</div><div style="background:var(--cream);padding:10px;border-radius:var(--radius-xs);font-size:10px;font-family:monospace;overflow-x:auto;margin-bottom:12px;white-space:pre;line-height:1.6">var SECRET = 'my-secret-123';\n\nfunction doPost(e) {\n  var data = JSON.parse(\n    e.postData.contents);\n  if (data.key !== SECRET)\n    return ContentService\n      .createTextOutput(\n        'unauthorized');\n  var sheet = SpreadsheetApp\n    .getActiveSpreadsheet()\n    .getSheetByName('Data');\n  if (!sheet) sheet =\n    SpreadsheetApp\n    .getActiveSpreadsheet()\n    .insertSheet('Data');\n  if (data.action === 'save')\n    sheet.getRange('A1')\n      .setValue(JSON.stringify(\n        data.data));\n  return ContentService\n    .createTextOutput('ok');\n}\n\nfunction doGet(e) {\n  if (e.parameter.key !== SECRET)\n    return ContentService\n      .createTextOutput(\n        'unauthorized');\n  var sheet = SpreadsheetApp\n    .getActiveSpreadsheet()\n    .getSheetByName('Data');\n  if (!sheet) return\n    ContentService\n    .createTextOutput('{}')\n    .setMimeType(ContentService\n      .MimeType.JSON);\n  var val = sheet\n    .getRange('A1').getValue();\n  return ContentService\n    .createTextOutput(val||'{}')\n    .setMimeType(ContentService\n      .MimeType.JSON);\n}</div><div style="margin-bottom:12px"><strong>4.</strong> 배포 → 새 배포 → 웹 앱</div><div style="margin-bottom:12px"><strong>5.</strong> 실행: <strong>본인(나)</strong> / 액세스: <strong>모든 사용자</strong></div><div style="margin-bottom:12px"><strong>6.</strong> URL 복사 → 설정에 입력, 비밀 키도 동일하게</div><div style="color:var(--primary);font-weight:600">⚠️ SECRET을 변경하고 앱과 동일하게!</div>`}
 function closeGuide(){$('guiM').classList.remove('show')}
